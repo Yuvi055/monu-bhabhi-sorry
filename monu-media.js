@@ -1,7 +1,11 @@
-/* ============================================================
-   MONU BHABHI JI — PRIVATE MEDIA LAYER (FIXED)
-   Private Supabase bucket + signed URLs.
-   ============================================================ */
+/*
+  MONU BHABHI JI — PRIVATE MEDIA LAYER v4
+  - Private Supabase bucket
+  - Anonymous authenticated session
+  - Lists the bucket first so filenames are taken from Supabase itself
+  - Creates signed URLs independently for each media item
+  - One broken item never blocks the others
+*/
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
@@ -9,223 +13,621 @@ const SUPABASE_URL = 'https://lqsvyglucnjtuzdflror.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_bb64OK-p8a76714juF91jA_6G61hdZ_';
 const BUCKET = 'monu-private-media';
 
-const MEDIA = {
+const EXPECTED = {
   photo1: 'Photo 1.JPG.jpeg',
   photo2: 'Photo 2.JPG.jpeg',
-  song: 'Song_.mov',
+  song: 'Song_.mov'
 };
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const supabase = createClient(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY,
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false
+    }
+  }
+);
 
-let ready = false;
-let songUrl = '';
-let userInteracted = false;
-let privateOpened = false;
+function el(tag, attrs = {}, children = []) {
+  const node = document.createElement(tag);
 
-function addUI() {
-  if (document.getElementById('monuMedia')) return;
+  for (const [key, value] of Object.entries(attrs)) {
+    if (key === 'text') {
+      node.textContent = value;
+    } else if (key === 'html') {
+      node.innerHTML = value;
+    } else if (key === 'className') {
+      node.className = value;
+    } else if (key === 'style') {
+      Object.assign(node.style, value);
+    } else if (value != null) {
+      node.setAttribute(key, value);
+    }
+  }
 
-  const root = document.createElement('section');
-  root.id = 'monuMedia';
-  root.className = 'monu-media';
-  root.hidden = true;
-  root.innerHTML = `
-    <div class="monu-media__backdrop"></div>
-    <div class="monu-media__card" role="dialog" aria-modal="true" aria-label="Private memories for Monu Bhabhi Ji">
-      <button class="monu-media__close" id="monuMediaClose" type="button" aria-label="Close memories">×</button>
-      <p class="monu-media__eyebrow">A PRIVATE LITTLE MEMORY BOX</p>
-      <h2>Monu Bhabhi Ji ❤️</h2>
-      <p class="monu-media__intro">Just two memories and one song — kept private, just for you. 🫂</p>
+  for (const child of children) {
+    node.append(child);
+  }
 
-      <div class="monu-media__photos">
-        <figure class="monu-photo-card">
-          <img id="monuPhoto1" alt="Private memory 1" loading="eager" />
-          <figcaption>One beautiful memory ❤️</figcaption>
-        </figure>
-        <figure class="monu-photo-card">
-          <img id="monuPhoto2" alt="Private memory 2" loading="eager" />
-          <figcaption>A moment worth keeping ✨</figcaption>
-        </figure>
-      </div>
-
-      <div class="monu-media__music">
-        <button id="monuSongBtn" class="monu-song-btn" type="button">▶ PLAY MY SONG FOR YOU</button>
-        <span id="monuSongStatus">Preparing your private memories…</span>
-      </div>
-
-      <video id="monuSong" class="monu-song" preload="metadata" playsinline loop aria-label="Private song"></video>
-      <p class="monu-media__footer">Made with love by Yuvi ❤️</p>
-    </div>
-  `;
-  document.body.appendChild(root);
-
-  document.getElementById('monuMediaClose')?.addEventListener('click', hidePrivateMemories);
-  document.getElementById('monuSongBtn')?.addEventListener('click', toggleSong);
-
-  const backdrop = root.querySelector('.monu-media__backdrop');
-  backdrop?.addEventListener('click', hidePrivateMemories);
+  return node;
 }
 
-function setStatus(text) {
-  const el = document.getElementById('monuSongStatus');
-  if (el) el.textContent = text;
+function normalizeName(value) {
+  return String(value || '').trim().toLowerCase();
 }
 
-function waitForImage(img, src) {
-  return new Promise((resolve, reject) => {
-    const finish = () => resolve();
-    img.onload = finish;
-    img.onerror = () => reject(new Error('Image failed to load'));
-    img.src = src;
-    if (img.complete && img.naturalWidth > 0) finish();
-  });
-}
+function findObject(objects, expectedName, kind) {
+  const exact = objects.find(
+    o => normalizeName(o.name) === normalizeName(expectedName)
+  );
 
-async function signedUrl(path, expiresIn = 7200) {
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, expiresIn);
-  if (error) throw error;
-  if (!data?.signedUrl) throw new Error(`No signed URL returned for ${path}`);
-  return data.signedUrl;
+  if (exact) return exact;
+
+  const expected = normalizeName(expectedName);
+
+  const loose = objects.find(
+    o =>
+      normalizeName(o.name).replace(/\s+/g, '') ===
+      expected.replace(/\s+/g, '')
+  );
+
+  if (loose) return loose;
+
+  if (kind === 'photo1') {
+    return objects.find(
+      o => normalizeName(o.name).includes('photo 1')
+    ) || null;
+  }
+
+  if (kind === 'photo2') {
+    return objects.find(
+      o => normalizeName(o.name).includes('photo 2')
+    ) || null;
+  }
+
+  if (kind === 'song') {
+    return objects.find(
+      o => normalizeName(o.name).includes('song')
+    ) || null;
+  }
+
+  return null;
 }
 
 async function ensureAnonymousSession() {
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (sessionData?.session) return sessionData.session;
+  const { data: sessionData } =
+    await supabase.auth.getSession();
 
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error) throw error;
-  if (!data?.session) throw new Error('Anonymous session was not created.');
+  if (sessionData?.session?.access_token) {
+    return sessionData.session;
+  }
+
+  const { data, error } =
+    await supabase.auth.signInAnonymously();
+
+  if (error) {
+    throw new Error(
+      `Anonymous sign-in failed: ${error.message}`
+    );
+  }
+
   return data.session;
 }
 
-async function preparePrivateMedia() {
-  addUI();
-  setStatus('Connecting to your private memories…');
+async function getRootObjects() {
+  const { data, error } =
+    await supabase.storage
+      .from(BUCKET)
+      .list('', {
+        limit: 100,
+        offset: 0
+      });
 
-  try {
-    await ensureAnonymousSession();
-
-    const [photo1, photo2, song] = await Promise.all([
-      signedUrl(MEDIA.photo1),
-      signedUrl(MEDIA.photo2),
-      signedUrl(MEDIA.song),
-    ]);
-
-    const photo1El = document.getElementById('monuPhoto1');
-    const photo2El = document.getElementById('monuPhoto2');
-    const songEl = document.getElementById('monuSong');
-
-    if (!photo1El || !photo2El || !songEl) throw new Error('Private media UI is missing.');
-
-    await Promise.all([
-      waitForImage(photo1El, photo1),
-      waitForImage(photo2El, photo2),
-    ]);
-
-    songUrl = song;
-    songEl.src = song;
-    songEl.volume = 0.45;
-
-    songEl.addEventListener('error', () => {
-      setStatus('The private song is loaded but this browser cannot play this MOV.');
-    }, { once: true });
-
-    ready = true;
-    setStatus('Private memories are ready. ❤️');
-
-    // If the visitor already interacted and the film is finished, try the song now.
-    if (userInteracted && window.bdayDone) {
-      startSong();
-    }
-
-    // Show automatically once the cinematic film has finished.
-    if (window.bdayDone) showPrivateMemories();
-  } catch (error) {
-    console.error('[Monu private media]', error);
-    setStatus('Private media could not be loaded. Please refresh once.');
+  if (error) {
+    throw new Error(
+      `Bucket list failed: ${error.message}`
+    );
   }
+
+  return Array.isArray(data)
+    ? data.filter(item => item?.name)
+    : [];
 }
 
-async function startSong() {
-  if (!ready || !songUrl) return false;
-  const songEl = document.getElementById('monuSong');
-  if (!songEl) return false;
+async function signedUrlFor(path) {
+  const { data, error } =
+    await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(
+        path,
+        60 * 60
+      );
 
-  try {
-    if (songEl.src !== songUrl) songEl.src = songUrl;
-    await songEl.play();
-    const btn = document.getElementById('monuSongBtn');
-    if (btn) btn.textContent = '❚❚ PAUSE MY SONG';
-    setStatus('Playing privately for you ❤️');
-    return true;
-  } catch (error) {
-    console.warn('[Monu song]', error);
-    setStatus('Tap PLAY MY SONG FOR YOU to start the music.');
-    return false;
+  if (error) {
+    throw new Error(
+      `Signed URL failed for ${path}: ${error.message}`
+    );
   }
+
+  if (!data?.signedUrl) {
+    throw new Error(
+      `No signed URL returned for ${path}`
+    );
+  }
+
+  return data.signedUrl;
 }
 
-function toggleSong() {
-  userInteracted = true;
-  const songEl = document.getElementById('monuSong');
-  const btn = document.getElementById('monuSongBtn');
-  if (!songEl) return;
-
-  if (!songEl.paused) {
-    songEl.pause();
-    if (btn) btn.textContent = '▶ PLAY MY SONG FOR YOU';
-    setStatus('Paused • tap play whenever you want ❤️');
+function injectStyles() {
+  if (
+    document.getElementById(
+      'monu-private-media-styles'
+    )
+  ) {
     return;
   }
 
-  startSong();
+  const style = document.createElement('style');
+
+  style.id = 'monu-private-media-styles';
+
+  style.textContent = `
+    #monuPrivateMedia {
+      width: min(1080px, 92vw);
+      margin: 48px auto 70px;
+      padding: 28px;
+      border-radius: 30px;
+      background: rgba(255,255,255,.56);
+      border: 1px solid rgba(130,88,52,.16);
+      box-shadow: 0 20px 60px rgba(72,40,20,.12);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      color: #3b2517;
+      position: relative;
+      z-index: 20;
+    }
+
+    #monuPrivateMedia .mpm-kicker {
+      text-align: center;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .24em;
+      opacity: .62;
+      margin-bottom: 8px;
+    }
+
+    #monuPrivateMedia h2 {
+      text-align: center;
+      margin: 0 0 8px;
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: clamp(28px, 5vw, 48px);
+    }
+
+    #monuPrivateMedia .mpm-note {
+      text-align: center;
+      margin: 0 auto 24px;
+      max-width: 620px;
+      opacity: .72;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 19px;
+    }
+
+    #monuPrivateMedia .mpm-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    #monuPrivateMedia .mpm-card {
+      overflow: hidden;
+      border-radius: 22px;
+      background: rgba(255,255,255,.72);
+      border: 1px solid rgba(130,88,52,.14);
+      box-shadow: 0 14px 34px rgba(72,40,20,.10);
+    }
+
+    #monuPrivateMedia img,
+    #monuPrivateMedia video {
+      width: 100%;
+      display: block;
+      background: #24170f;
+      aspect-ratio: 4 / 5;
+      object-fit: cover;
+    }
+
+    #monuPrivateMedia video {
+      aspect-ratio: 16 / 10;
+    }
+
+    #monuPrivateMedia .mpm-caption {
+      padding: 13px 15px 15px;
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 18px;
+      text-align: center;
+    }
+
+    #monuPrivateMedia .mpm-song {
+      margin-top: 18px;
+    }
+
+    #monuPrivateMedia .mpm-song video {
+      aspect-ratio: 16 / 9;
+      max-height: 420px;
+      object-fit: contain;
+    }
+
+    #monuPrivateMedia .mpm-status {
+      margin-top: 18px;
+      font-size: 12px;
+      text-align: center;
+      opacity: .62;
+      word-break: break-word;
+    }
+
+    #monuPrivateMedia .mpm-error {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(150,30,50,.08);
+      color: #7e1b2e;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 700px) {
+      #monuPrivateMedia {
+        padding: 18px;
+        border-radius: 22px;
+      }
+
+      #monuPrivateMedia .mpm-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  `;
+
+  document.head.appendChild(style);
 }
 
-function showPrivateMemories() {
-  if (!ready) return;
-  addUI();
-  const root = document.getElementById('monuMedia');
-  if (!root) return;
+function makeSection() {
+  let section =
+    document.getElementById(
+      'monuPrivateMedia'
+    );
 
-  privateOpened = true;
-  root.hidden = false;
-  requestAnimationFrame(() => root.classList.add('is-visible'));
-
-  // A user gesture has already happened on this page during the film.
-  startSong();
-}
-
-function hidePrivateMemories() {
-  const root = document.getElementById('monuMedia');
-  const songEl = document.getElementById('monuSong');
-  const btn = document.getElementById('monuSongBtn');
-
-  if (songEl) songEl.pause();
-  if (btn) btn.textContent = '▶ PLAY MY SONG FOR YOU';
-  if (root) {
-    root.classList.remove('is-visible');
-    setTimeout(() => { root.hidden = true; }, 450);
+  if (section) {
+    return section;
   }
-  privateOpened = false;
+
+  section = el(
+    'section',
+    {
+      id: 'monuPrivateMedia',
+      'aria-label': 'Private Monu memories'
+    }
+  );
+
+  section.append(
+    el(
+      'div',
+      {
+        className: 'mpm-kicker',
+        text: 'PRIVATE MEMORIES'
+      }
+    ),
+
+    el(
+      'h2',
+      {
+        text: 'Just For You, Monu Bhabhi Ji ❤️'
+      }
+    ),
+
+    el(
+      'p',
+      {
+        className: 'mpm-note',
+        text: 'Two little memories and one song — kept private, just for this apology.'
+      }
+    )
+  );
+
+  const grid = el(
+    'div',
+    {
+      className: 'mpm-grid',
+      id: 'mpmGrid'
+    }
+  );
+
+  section.append(grid);
+
+  const credits =
+    document.getElementById('credits');
+
+  if (credits?.parentNode) {
+    credits.parentNode.insertBefore(
+      section,
+      credits
+    );
+  } else {
+    document
+      .querySelector('.scene')
+      ?.append(section);
+  }
+
+  return section;
 }
 
-function watchFilmEnd() {
-  setInterval(() => {
-    if (window.bdayDone && ready && !privateOpened) showPrivateMemories();
-  }, 300);
+function addError(section, message) {
+  const box = el(
+    'div',
+    {
+      className: 'mpm-error',
+      text: message
+    }
+  );
+
+  section.append(box);
 }
 
-// Mobile browser audio unlock: remember that a real gesture happened.
-window.addEventListener('pointerup', () => {
-  userInteracted = true;
-  if (window.bdayDone) startSong();
-}, { passive: true });
+async function addSignedPhoto(
+  grid,
+  object,
+  label
+) {
+  if (!object) {
+    const card = el(
+      'div',
+      {
+        className: 'mpm-card'
+      }
+    );
 
-window.addEventListener('keydown', () => {
-  userInteracted = true;
-  if (window.bdayDone) startSong();
-}, { passive: true });
+    card.append(
+      el(
+        'div',
+        {
+          className: 'mpm-caption',
+          text: `${label}: file not found in Supabase bucket.`
+        }
+      )
+    );
 
-addUI();
-preparePrivateMedia();
-watchFilmEnd();
+    grid.append(card);
+    return;
+  }
+
+  const card = el(
+    'div',
+    {
+      className: 'mpm-card'
+    }
+  );
+
+  const caption = el(
+    'div',
+    {
+      className: 'mpm-caption',
+      text: label
+    }
+  );
+
+  const img = el(
+    'img',
+    {
+      alt: label,
+      loading: 'lazy',
+      decoding: 'async'
+    }
+  );
+
+  card.append(
+    img,
+    caption
+  );
+
+  grid.append(card);
+
+  try {
+    img.src =
+      await signedUrlFor(
+        object.name
+      );
+  } catch (error) {
+    img.replaceWith(
+      el(
+        'div',
+        {
+          className: 'mpm-caption',
+          text: error.message
+        }
+      )
+    );
+  }
+}
+
+async function addSignedSong(
+  section,
+  object
+) {
+  const card = el(
+    'div',
+    {
+      className: 'mpm-card mpm-song'
+    }
+  );
+
+  const title = el(
+    'div',
+    {
+      className: 'mpm-caption',
+      text: 'A Song For You 🎵❤️'
+    }
+  );
+
+  card.append(title);
+  section.append(card);
+
+  if (!object) {
+    card.append(
+      el(
+        'div',
+        {
+          className: 'mpm-caption',
+          text: 'Song file not found in Supabase bucket.'
+        }
+      )
+    );
+
+    return;
+  }
+
+  try {
+    const url =
+      await signedUrlFor(
+        object.name
+      );
+
+    const video = el(
+      'video',
+      {
+        controls: 'true',
+        playsinline: 'true',
+        preload: 'metadata',
+        'aria-label':
+          'Private song for Monu Bhabhi Ji'
+      }
+    );
+
+    video.src = url;
+
+    card.prepend(video);
+
+  } catch (error) {
+    card.append(
+      el(
+        'div',
+        {
+          className: 'mpm-caption',
+          text: error.message
+        }
+      )
+    );
+  }
+}
+
+async function loadPrivateMedia() {
+  injectStyles();
+
+  const section =
+    makeSection();
+
+  const grid =
+    section.querySelector(
+      '#mpmGrid'
+    );
+
+  try {
+    await ensureAnonymousSession();
+  } catch (error) {
+    addError(
+      section,
+      error.message
+    );
+
+    return;
+  }
+
+  let objects;
+
+  try {
+    objects =
+      await getRootObjects();
+
+    console.info(
+      '[Monu private media] Supabase objects:',
+      objects.map(
+        x => x.name
+      )
+    );
+
+  } catch (error) {
+    addError(
+      section,
+      `${error.message} — check the storage.objects SELECT policy for authenticated users.`
+    );
+
+    return;
+  }
+
+  const photo1 =
+    findObject(
+      objects,
+      EXPECTED.photo1,
+      'photo1'
+    );
+
+  const photo2 =
+    findObject(
+      objects,
+      EXPECTED.photo2,
+      'photo2'
+    );
+
+  const song =
+    findObject(
+      objects,
+      EXPECTED.song,
+      'song'
+    );
+
+  await Promise.allSettled([
+    addSignedPhoto(
+      grid,
+      photo1,
+      'A Memory To Keep ❤️'
+    ),
+
+    addSignedPhoto(
+      grid,
+      photo2,
+      'One More Beautiful Memory 🫂'
+    ),
+
+    addSignedSong(
+      section,
+      song
+    )
+  ]);
+
+  const status =
+    el(
+      'div',
+      {
+        className:
+          'mpm-status',
+        text:
+          `Private media connected • ${objects.length} file(s) found • signed access`
+      }
+    );
+
+  section.append(status);
+}
+
+document.addEventListener(
+  'DOMContentLoaded',
+  () => {
+    loadPrivateMedia().catch(
+      error => {
+        console.error(
+          '[Monu private media] Unexpected error:',
+          error
+        );
+      }
+    );
+  }
+);
