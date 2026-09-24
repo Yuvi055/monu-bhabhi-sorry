@@ -1524,3 +1524,406 @@ if (
   init();
 
 }
+/* =========================================================
+   MONU PHOTO HEART POPS — ADDITIVE EFFECT
+   Does not replace existing animation/media logic.
+========================================================= */
+
+(function addMonuPhotoHearts() {
+
+  const HEART_STYLES = [
+    { char: "♥", cls: "heart-solid" },
+    { char: "♡", cls: "heart-outline" },
+    { char: "❤", cls: "heart-red" },
+    { char: "❥", cls: "heart-love" },
+    { char: "💗", cls: "heart-pink" },
+    { char: "💖", cls: "heart-spark" }
+  ];
+
+  const style = document.createElement("style");
+
+  style.id = "monu-photo-heart-pop-style";
+
+  style.textContent = `
+    .monuV5-photoCard {
+      position: relative !important;
+      overflow: visible !important;
+    }
+
+    .monuHeartField {
+      position: absolute;
+      inset: -34px;
+      pointer-events: none;
+      overflow: visible;
+      z-index: 30;
+    }
+
+    .monuHeartPop {
+      position: absolute;
+
+      left: var(--left);
+      top: var(--top);
+
+      font-size: var(--size);
+
+      opacity: 0;
+
+      transform:
+        translate(-50%, -50%)
+        scale(.15)
+        rotate(var(--rotate));
+
+      filter:
+        drop-shadow(
+          0 4px 7px rgba(120, 24, 59, .18)
+        );
+
+      animation:
+        monuHeartBurst
+        var(--duration)
+        cubic-bezier(.18,.74,.22,1)
+        var(--delay)
+        infinite;
+
+      will-change:
+        transform,
+        opacity;
+
+      user-select: none;
+    }
+
+    .heart-solid {
+      color: #d6295c;
+    }
+
+    .heart-outline {
+      color: #b83f68;
+      text-shadow:
+        0 0 7px rgba(255, 117, 153, .35);
+    }
+
+    .heart-red {
+      color: #ef365e;
+    }
+
+    .heart-love {
+      color: #8e2b55;
+    }
+
+    .heart-pink {
+      filter:
+        drop-shadow(
+          0 0 8px rgba(255, 102, 163, .42)
+        );
+    }
+
+    .heart-spark {
+      filter:
+        drop-shadow(
+          0 0 10px rgba(255, 80, 150, .50)
+        );
+    }
+
+    @keyframes monuHeartBurst {
+
+      0% {
+        opacity: 0;
+
+        transform:
+          translate(-50%, -50%)
+          scale(.12)
+          rotate(var(--rotate));
+      }
+
+      10% {
+        opacity: .95;
+
+        transform:
+          translate(-50%, -50%)
+          scale(1.18)
+          rotate(0deg);
+      }
+
+      22% {
+        opacity: 1;
+
+        transform:
+          translate(
+            calc(-50% + var(--popX)),
+            calc(-50% + var(--popY))
+          )
+          scale(1)
+          rotate(var(--rotate));
+      }
+
+      62% {
+        opacity: .72;
+
+        transform:
+          translate(
+            calc(-50% + var(--floatX)),
+            calc(-50% + var(--floatY))
+          )
+          scale(.82)
+          rotate(var(--endRotate));
+      }
+
+      100% {
+        opacity: 0;
+
+        transform:
+          translate(
+            calc(-50% + var(--finalX)),
+            calc(-50% + var(--finalY))
+          )
+          scale(.42)
+          rotate(var(--finalRotate));
+      }
+    }
+
+    @media (max-width: 700px) {
+
+      .monuHeartField {
+        inset: -24px;
+      }
+
+      .monuHeartPop {
+        font-size:
+          calc(var(--size) * .84);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+      .monuHeartPop {
+        animation: none !important;
+        opacity: .5;
+      }
+    }
+  `;
+
+  document.head.appendChild(style);
+
+
+  function createHeartField(card) {
+
+    if (!card) return;
+
+    if (
+      card.querySelector(
+        ".monuHeartField"
+      )
+    ) {
+      return;
+    }
+
+    const field =
+      document.createElement("div");
+
+    field.className =
+      "monuHeartField";
+
+    const count = 11;
+
+    for (
+      let i = 0;
+      i < count;
+      i++
+    ) {
+
+      const config =
+        HEART_STYLES[
+          i % HEART_STYLES.length
+        ];
+
+      const heart =
+        document.createElement("span");
+
+      heart.className =
+        `monuHeartPop ${config.cls}`;
+
+      heart.textContent =
+        config.char;
+
+      const left =
+        8 + Math.random() * 84;
+
+      const top =
+        8 + Math.random() * 84;
+
+      const size =
+        13 + Math.random() * 15;
+
+      const popX =
+        (Math.random() - .5) * 30;
+
+      const popY =
+        (Math.random() - .5) * 30;
+
+      const floatX =
+        (Math.random() - .5) * 70;
+
+      const floatY =
+        -30 - Math.random() * 65;
+
+      const finalX =
+        (Math.random() - .5) * 110;
+
+      const finalY =
+        -75 - Math.random() * 85;
+
+      const duration =
+        3.8 + Math.random() * 2.2;
+
+      const delay =
+        Math.random() * 4.5;
+
+      const rotate =
+        (Math.random() - .5) * 40;
+
+      const endRotate =
+        (Math.random() - .5) * 80;
+
+      const finalRotate =
+        (Math.random() - .5) * 150;
+
+      heart.style.setProperty(
+        "--left",
+        `${left}%`
+      );
+
+      heart.style.setProperty(
+        "--top",
+        `${top}%`
+      );
+
+      heart.style.setProperty(
+        "--size",
+        `${size}px`
+      );
+
+      heart.style.setProperty(
+        "--popX",
+        `${popX}px`
+      );
+
+      heart.style.setProperty(
+        "--popY",
+        `${popY}px`
+      );
+
+      heart.style.setProperty(
+        "--floatX",
+        `${floatX}px`
+      );
+
+      heart.style.setProperty(
+        "--floatY",
+        `${floatY}px`
+      );
+
+      heart.style.setProperty(
+        "--finalX",
+        `${finalX}px`
+      );
+
+      heart.style.setProperty(
+        "--finalY",
+        `${finalY}px`
+      );
+
+      heart.style.setProperty(
+        "--duration",
+        `${duration}s`
+      );
+
+      heart.style.setProperty(
+        "--delay",
+        `${delay}s`
+      );
+
+      heart.style.setProperty(
+        "--rotate",
+        `${rotate}deg`
+      );
+
+      heart.style.setProperty(
+        "--endRotate",
+        `${endRotate}deg`
+      );
+
+      heart.style.setProperty(
+        "--finalRotate",
+        `${finalRotate}deg`
+      );
+
+      field.appendChild(
+        heart
+      );
+    }
+
+    card.appendChild(field);
+  }
+
+
+  function scanPhotos() {
+
+    const cards =
+      document.querySelectorAll(
+        ".monuV5-photoCard"
+      );
+
+    cards.forEach(
+      createHeartField
+    );
+  }
+
+
+  /*
+    Wait until the private photos have
+    been inserted, then add heart effects.
+  */
+
+  let attempts = 0;
+
+  const timer =
+    setInterval(() => {
+
+      scanPhotos();
+
+      attempts++;
+
+      const cards =
+        document.querySelectorAll(
+          ".monuV5-photoCard"
+        );
+
+      if (
+        cards.length >= 2 ||
+        attempts >= 30
+      ) {
+        clearInterval(timer);
+      }
+
+    }, 350);
+
+
+  /*
+    Also watch for any future photo
+    cards added dynamically.
+  */
+
+  const observer =
+    new MutationObserver(
+      () => scanPhotos()
+    );
+
+  observer.observe(
+    document.body,
+    {
+      childList: true,
+      subtree: true
+    }
+  );
+
+})();
